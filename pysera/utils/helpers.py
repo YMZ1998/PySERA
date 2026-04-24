@@ -401,7 +401,8 @@ def _create_matched_pairs(
     matched_pairs: List[Tuple[str, str]] = []
 
     for basename, img_path in image_base_names.items():
-        mask_path = mask_base_names.get(basename)
+        # print(f"Processing {format_name} file: {basename}")
+        mask_path = mask_base_names.get(basename.replace("_0000", ""))
         if mask_path:
             matched_pairs.append((img_path, mask_path))
             logger.info(f"Matched {format_name} pair found for {basename}")

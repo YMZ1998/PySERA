@@ -7,7 +7,7 @@
 requirements - pervious.txt
 .DS_Store
 
-
+*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -239,6 +239,7 @@ class RadiomicsProcessor:
             folder_name=folder_name,
             timestamp=timestamp
         )
+        output_filename = f"extracted_radiomics_features.xlsx"
         output_file_path = os.path.join(self.output_path, output_filename)
 
         return output_file_path
@@ -449,7 +450,8 @@ class RadiomicsProcessor:
         if df is None:
             return None
 
-        output_filename = f"radiomics_features_numpy_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.xlsx"
+        # output_filename = f"radiomics_features_numpy_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.xlsx"
+        output_filename = f"radiomics_features.xlsx"
         output_path = os.path.join(self.output_path, output_filename)
         final = self._finalize_results([df], output_path)
         self.save_parameters(output_path)
