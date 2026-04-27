@@ -1,4 +1,5 @@
 # -- coding: utf-8 --
+import json
 import os
 
 import matplotlib.pyplot as plt
@@ -7,16 +8,19 @@ import pandas as pd
 from sklearn.linear_model import LassoCV
 from sklearn.preprocessing import StandardScaler
 
-
-DATA_PATH = r"E:\AI-data2\nnUNet_raw\Dataset0978_test"
-CLASS_CONFIG = {"A": 1, "B": 0}
-TEST_RATIO = 0.15
-RANDOM_STATE = 114
-USE_TTEST = True
-USE_MUSE = False
-MAX_MUSE_FEATURES = 60
-MODEL_NAME = "bayes"
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+from config import (
+    CLASS_CONFIG,
+    DATA_PATH,
+    FEATURE_METADATA_PATH,
+    MAX_MUSE_FEATURES,
+    RANDOM_STATE,
+    SCRIPT_DIR,
+    TEST_RATIO,
+    TEST_SELECTED_PATH,
+    TRAIN_SELECTED_PATH,
+    USE_MUSE,
+    USE_TTEST,
+)
 
 
 def split_df(df, ratio):
@@ -84,7 +88,7 @@ def split_group_datasets(group_frames, test_ratio):
     return train_frames, test_frames
 
 
-def save_test_sets(test_frames):
+def save_group_test_sets(test_frames):
     for group_name, df in test_frames.items():
         output_path = os.path.join(SCRIPT_DIR, f"{group_name}_test.csv")
         df.to_csv(output_path, index=False)
@@ -120,7 +124,11 @@ def run_muse_selection(data, columns_index, max_columns_num, use_muse=False):
     if not use_muse:
         return columns_index
 
-    from kydavra import MUSESelector
+    try:
+        from kydavra import MUSESelector
+    except ModuleNotFoundError:
+        print("kydavra is not installed, skip MUSE feature selection.")
+        return columns_index
 
     print("Start MUSE feature selection")
     selector = MUSESelector(num_features=max_columns_num)
@@ -254,132 +262,44 @@ def plot_lasso_diagnostics(lasso_result, data):
     plt.ylabel("coef")
 
 
-def build_classifier(model_name, random_state):
-    if model_name == "forest":
-        from sklearn.ensemble import RandomForestClassifier
-
-        return RandomForestClassifier(n_estimators=30, random_state=random_state)
-    if model_name == "svm":
-        from sklearn import svm
-
-        return svm.SVC(kernel="rbf", gamma="auto", probability=True)
-    if model_name == "adaboost":
-        from sklearn.ensemble import AdaBoostClassifier
-
-        return AdaBoostClassifier(n_estimators=100, algorithm="SAMME.R")
-    if model_name == "decisiontree":
-        from sklearn.tree import DecisionTreeClassifier
-
-        return DecisionTreeClassifier(criterion="gini")
-    if model_name == "bayes":
-        from sklearn.naive_bayes import GaussianNB
-
-        return GaussianNB()
-    if model_name == "MLP":
-        from sklearn.neural_network import MLPClassifier
-
-        return MLPClassifier(
-            solver="lbfgs",
-            alpha=1e-5,
-            hidden_layer_sizes=(15, 2),
-            random_state=1,
-        )
-    raise ValueError(f"Unsupported model_name: {model_name}")
-
-
-def train_classifier(data, selected_features, model_name, random_state):
-    from sklearn.model_selection import train_test_split
-
-    x = data[selected_features]
-    y = data["label"]
-
-    scaler = StandardScaler()
-    x_scaled = scaler.fit_transform(x)
-    x_scaled = pd.DataFrame(x_scaled, columns=selected_features, index=x.index)
-    x_train, x_test, y_train, y_test = train_test_split(
-        x_scaled,
-        y,
-        test_size=0.1,
-        random_state=random_state,
-        stratify=y,
+def save_selected_outputs(train_frames, test_frames, selected_features, random_state):
+    selected_columns = ["label"] + list(selected_features)
+    train_selected = combine_and_shuffle_frames(
+        [train_frames["A"][selected_columns], train_frames["B"][selected_columns]],
+        random_state,
+    )
+    test_selected = combine_and_shuffle_frames(
+        [test_frames["A"][selected_columns], test_frames["B"][selected_columns]],
+        random_state,
     )
 
-    model = build_classifier(model_name, random_state)
-    model.fit(x_train, y_train)
+    train_selected.to_csv(TRAIN_SELECTED_PATH, index=False)
+    test_selected.to_csv(TEST_SELECTED_PATH, index=False)
 
-    score = model.score(x_test, y_test)
-    print("Model:", model_name)
-    print("Validation accuracy: {}".format(score))
-    return model, scaler, score
-
-
-def save_model(model, data_path, model_name):
-    import joblib
-
-    model_path = os.path.join(data_path, "model_" + model_name + ".model")
-    joblib.dump(model, model_path)
-    return model_path
-
-
-def load_saved_test_data():
-    a_test = pd.read_csv(os.path.join(SCRIPT_DIR, "A_test.csv"))
-    b_test = pd.read_csv(os.path.join(SCRIPT_DIR, "B_test.csv"))
-    return pd.concat([a_test, b_test], axis=0)
-
-
-def evaluate_model(model_path, selected_features, scaler, a_data_test, b_data_test):
-    import joblib
-    from sklearn.metrics import classification_report, confusion_matrix
-    import seaborn as sns
-
-    data_test = load_saved_test_data()
-    x_test_data = data_test[selected_features].astype(np.float32)
-    x_test_data = scaler.transform(x_test_data)
-    x_test_data = pd.DataFrame(x_test_data, columns=selected_features)
-    y_test_data = data_test["label"]
-
-    print(
-        "Test samples: {}, features: {}, A: {}, B: {}".format(
-            len(x_test_data),
-            x_test_data.shape[1],
-            len(a_data_test),
-            len(b_data_test),
-        )
-    )
-
-    model = joblib.load(model_path)
-    score = model.score(x_test_data, y_test_data)
-    print("Test accuracy: {}".format(score))
-
-    predict_label = model.predict(x_test_data)
-    label = y_test_data.to_list()
-    confusion = confusion_matrix(label, predict_label)
-
-    plt.figure(figsize=(6, 5))
-    sns.heatmap(
-        confusion,
-        cmap="Blues_r",
-        annot=True,
-        annot_kws={"size": 20, "weight": "bold"},
-    )
-    plt.xlabel("Predict")
-    plt.ylabel("True")
-
-    print("Confusion matrix:\n{}".format(confusion))
-    print("\nClassification metrics:")
-    print(classification_report(label, predict_label))
-    return {
-        "score": score,
-        "confusion": confusion,
-        "labels": label,
-        "predictions": predict_label,
+    metadata = {
+        "data_path": DATA_PATH,
+        "class_config": CLASS_CONFIG,
+        "test_ratio": TEST_RATIO,
+        "random_state": RANDOM_STATE,
+        "use_ttest": USE_TTEST,
+        "use_muse": USE_MUSE,
+        "max_muse_features": MAX_MUSE_FEATURES,
+        "selected_features": list(selected_features),
+        "train_selected_path": TRAIN_SELECTED_PATH,
+        "test_selected_path": TEST_SELECTED_PATH,
     }
+    with open(FEATURE_METADATA_PATH, "w", encoding="utf-8") as file:
+        json.dump(metadata, file, ensure_ascii=False, indent=2)
+
+    print("Saved selected training data to:", TRAIN_SELECTED_PATH)
+    print("Saved selected test data to:", TEST_SELECTED_PATH)
+    print("Saved feature metadata to:", FEATURE_METADATA_PATH)
 
 
 def main():
     group_frames = prepare_group_datasets(DATA_PATH, CLASS_CONFIG, RANDOM_STATE)
     train_frames, test_frames = split_group_datasets(group_frames, TEST_RATIO)
-    save_test_sets(test_frames)
+    save_group_test_sets(test_frames)
 
     train_data = combine_and_shuffle_frames(
         [train_frames["A"], train_frames["B"]],
@@ -395,6 +315,7 @@ def main():
     )
     if not feature_columns:
         raise ValueError("No features were selected after T-test filtering.")
+
     subset_data, _ = build_feature_subset(
         train_frames["A"],
         train_frames["B"],
@@ -425,19 +346,11 @@ def main():
     if not selected_features:
         raise ValueError("No features were selected by Lasso.")
 
-    model, scaler, _ = train_classifier(
-        subset_data,
+    save_selected_outputs(
+        train_frames,
+        test_frames,
         selected_features,
-        MODEL_NAME,
         RANDOM_STATE,
-    )
-    model_path = save_model(model, DATA_PATH, MODEL_NAME)
-    evaluate_model(
-        model_path,
-        selected_features,
-        scaler,
-        test_frames["A"],
-        test_frames["B"],
     )
 
 

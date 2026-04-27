@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 # 导入常用库
 import pandas as pd
+from mlxtend.plotting import plot_confusion_matrix
 from sklearn.linear_model import LassoCV  # 导入Lasso工具包LassoCV
 from sklearn.preprocessing import StandardScaler  # 标准化工具包StandardScaler
 
@@ -330,39 +331,39 @@ if __name__ == '__main__':
     # plt.show()
 
     # 绘制混淆图方法2,一行代码
-    # plot_confusion_matrix(model_forest, x_test_data, y_test_data,values_format='d',cmap='GnBu_r')
+    # plot_confusion_matrix(model, x_test_data, y_test_data,cmap='GnBu_r')
 
     print("混淆矩阵为：\n{}".format(confusion))
     print("\n计算各项指标：")
     print(classification_report(label, predict_label))
 
-    # # 绘制ROC曲线,方法1
-    # from sklearn.metrics import roc_curve, auc
-    #
-    # kind = {'A': 1, "B": 0}
-    # # model = joblib.load(model_path)  # 这是自己训练模型，记得替换自己的
-    # label = y_test_data.to_list()  # 真实标签
-    # y_predict = model.predict_proba(x_test_data)  # 得到标签0和1对应的概率
-    # fpr, tpr, threshold = roc_curve(label, y_predict[:, kind['B']], pos_label=kind['B'])
-    # roc_auc = auc(fpr, tpr)  # 计算auc的
-    # fpr1, tpr1, threshold = roc_curve(label, y_predict[:, kind['A']], pos_label=kind['A'])
-    # roc_auc1 = auc(fpr1, tpr1)  # 计算auc的
-    # plt.figure(figsize=(6, 5))
-    # plt.plot(fpr, tpr, marker='o', markersize=5, label='B')
-    # plt.plot(fpr1, tpr1, marker='*', markersize=5, label='A')
-    # plt.title("B AUC:{:.2f}, A AUC:{:.2f}".format(roc_auc, roc_auc1))
-    # plt.xlabel('FPR')
-    # plt.ylabel('TPR')
-    # plt.legend(loc=4)
-    # # plt.show()
-    # # 绘制ROC方法2,两行代码
-    # from sklearn.metrics import RocCurveDisplay
-    #
-    # ax1 = RocCurveDisplay.from_estimator(model, x_test_data, y_test_data, name='B', pos_label=0)
-    # RocCurveDisplay.from_estimator(model, x_test_data, y_test_data, ax=ax1.ax_, name='ACC', pos_label=1)
-    #
-    # # 绘制PR曲线，一行代码
-    # from sklearn.metrics import PrecisionRecallDisplay
-    #
-    # PrecisionRecallDisplay.from_estimator(model, x_test_data, y_test_data, name='PR', pos_label=0)
+    # 绘制ROC曲线,方法1
+    from sklearn.metrics import roc_curve, auc
+
+    kind = {'A': 1, "B": 0}
+    # model = joblib.load(model_path)  # 这是自己训练模型，记得替换自己的
+    label = y_test_data.to_list()  # 真实标签
+    y_predict = model.predict_proba(x_test_data)  # 得到标签0和1对应的概率
+    fpr, tpr, threshold = roc_curve(label, y_predict[:, kind['B']], pos_label=kind['B'])
+    roc_auc = auc(fpr, tpr)  # 计算auc的
+    fpr1, tpr1, threshold = roc_curve(label, y_predict[:, kind['A']], pos_label=kind['A'])
+    roc_auc1 = auc(fpr1, tpr1)  # 计算auc的
+    plt.figure(figsize=(6, 5))
+    plt.plot(fpr, tpr, marker='o', markersize=5, label='B')
+    plt.plot(fpr1, tpr1, marker='*', markersize=5, label='A')
+    plt.title("B AUC:{:.2f}, A AUC:{:.2f}".format(roc_auc, roc_auc1))
+    plt.xlabel('FPR')
+    plt.ylabel('TPR')
+    plt.legend(loc=4)
     # plt.show()
+    # 绘制ROC方法2,两行代码
+    from sklearn.metrics import RocCurveDisplay
+
+    ax1 = RocCurveDisplay.from_estimator(model, x_test_data, y_test_data, name='B', pos_label=0)
+    RocCurveDisplay.from_estimator(model, x_test_data, y_test_data, ax=ax1.ax_, name='ACC', pos_label=1)
+
+    # 绘制PR曲线，一行代码
+    from sklearn.metrics import PrecisionRecallDisplay
+
+    PrecisionRecallDisplay.from_estimator(model, x_test_data, y_test_data, name='PR', pos_label=0)
+    plt.show()

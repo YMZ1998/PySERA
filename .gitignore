@@ -8,6 +8,8 @@ requirements - pervious.txt
 .DS_Store
 
 *.csv
+*.json
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
