@@ -3,366 +3,443 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
-# 导入常用库
 import pandas as pd
-from sklearn.linear_model import LassoCV  # 导入Lasso工具包LassoCV
-from sklearn.preprocessing import StandardScaler  # 标准化工具包StandardScaler
+from sklearn.linear_model import LassoCV
+from sklearn.preprocessing import StandardScaler
+
+
+DATA_PATH = r"E:\AI-data2\nnUNet_raw\Dataset0978_test"
+CLASS_CONFIG = {"A": 1, "B": 0}
+TEST_RATIO = 0.15
+RANDOM_STATE = 114
+USE_TTEST = True
+USE_MUSE = False
+MAX_MUSE_FEATURES = 60
+MODEL_NAME = "bayes"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def split_df(df, ratio):
-    # 用来分割数据集，保留一定比例的数据集当做最终的测试集
     cut_idx = int(round(ratio * df.shape[0]))
     print(cut_idx)
     data_test, data_train = df.iloc[:cut_idx], df.iloc[cut_idx:]
-    return (data_train, data_test)
+    return data_train, data_test
 
 
-if __name__ == '__main__':
-    data_path = r"E:\AI-data2\nnUNet_raw\Dataset0978_test"
-    class_dic = ["A", "B"]
+def load_group_data(data_path, group_name, label, random_state):
+    file_path = os.path.join(
+        data_path,
+        group_name,
+        "results",
+        "extracted_radiomics_features.xlsx",
+    )
+    data = pd.read_excel(file_path)
+    data.insert(0, "label", label)
+    return data.sample(frac=1.0, random_state=random_state)
 
-    test_ratio = 0.15
-    random_state = 114  # 固定随机种子
-    A_data = pd.read_excel(os.path.join(data_path, "A", "results", 'extracted_radiomics_features.xlsx'))
-    B_data = pd.read_excel(os.path.join(data_path, "B", "results", 'extracted_radiomics_features.xlsx'))
 
-    A_data.insert(0, 'label', 1)  # 插入标签
-    B_data.insert(0, 'label', 0)  # 插入标签
+def find_dim_columns(columns):
+    dim_columns = [column for column in columns if "dim" in column]
+    print("cols_to_remove:", dim_columns)
+    return dim_columns
 
-    A_data = A_data.sample(frac=1.0, random_state=random_state)  # 全部打乱
-    B_data = B_data.sample(frac=1.0, random_state=random_state)  # 全部打乱
 
-    # # 因为有些特征是字符串，直接删掉
-    # cols = [x for i, x in enumerate(A_data.columns) if type(A_data.iat[1, i]) == str]
-    # A_data = A_data.drop(cols, axis=1)
-    # cols = [x for i, x in enumerate(B_data.columns) if type(B_data.iat[1, i]) == str]
-    # B_data = B_data.drop(cols, axis=1)
-    head = A_data.columns
-    cols_to_remove = []
-    for h in head:
-        if "dim" in h:
-            cols_to_remove.append(h)
-    print("cols_to_remove: ", cols_to_remove)
-    # 如果要删除多列
-    # cols_to_remove = ['vox_dim_z_init_img', 'img_dim_z_init_img', 'img_dim_z_interp_img']
-    A_data = A_data.drop(columns=cols_to_remove)
-    B_data = B_data.drop(columns=cols_to_remove)
+def drop_string_columns(df):
+    string_columns = []
+    for column in df.columns:
+        series = df[column].dropna()
+        if not series.empty and isinstance(series.iloc[0], str):
+            string_columns.append(column)
+    return df.drop(columns=string_columns), string_columns
 
-    # 去掉字符串列
-    cols_str_A = [col for col in A_data.columns if isinstance(A_data[col].iloc[1], str)]
-    A_data = A_data.drop(cols_str_A, axis=1)
 
-    cols_str_B = [col for col in B_data.columns if isinstance(B_data[col].iloc[1], str)]
-    B_data = B_data.drop(cols_str_B, axis=1)
+def clean_group_data(df, dim_columns):
+    cleaned = df.drop(columns=dim_columns, errors="ignore")
+    cleaned, string_columns = drop_string_columns(cleaned)
+    cleaned = cleaned.dropna(axis=1, how="all")
+    cleaned = cleaned.dropna(axis=1, how="any")
+    return cleaned, string_columns
 
-    # 去掉全是 NaN 的列
-    A_data = A_data.dropna(axis=1, how='all')
-    B_data = B_data.dropna(axis=1, how='all')
 
-    # 去掉包含 NaN 的列
-    A_data = A_data.dropna(axis=1, how='any')
-    B_data = B_data.dropna(axis=1, how='any')
+def prepare_group_datasets(data_path, class_config, random_state):
+    group_frames = {}
+    raw_frames = {}
+    for group_name, label in class_config.items():
+        raw_frames[group_name] = load_group_data(data_path, group_name, label, random_state)
 
-    # 现在 A_data 和 B_data 只剩下完整的数值特征列
-    print("A_data shape:", A_data.shape)
-    print("B_data shape:", B_data.shape)
+    dim_columns = find_dim_columns(raw_frames["A"].columns)
+    for group_name, raw_df in raw_frames.items():
+        cleaned_df, string_columns = clean_group_data(raw_df, dim_columns)
+        print(f"{group_name} string columns removed:", string_columns)
+        print(f"{group_name}_data shape:", cleaned_df.shape)
+        group_frames[group_name] = cleaned_df
+    return group_frames
 
-    A_data_train, A_data_test = split_df(A_data, test_ratio)  # 返回train 和test数据集
-    B_data_train, B_data_test = split_df(B_data, test_ratio)  # 返回train 和test数据集
 
-    # 保存测试集为cvs 后面最终验证使用
-    A_data_test.to_csv('A_test.csv', index=False)
-    B_data_test.to_csv('B_test.csv', index=False)
-    # 查看总数据类别是否平衡
-    '''
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots()
-    sns.set()
-    total_data = pd.concat([A_data, B_data])
-    sns.countplot(x='label',hue='label',data=total_data)
-    plt.show()
-    print(total_data['label'].value_counts())
-    '''
-    # 把hgg_data_train 和lgg_data_train 并在一起并且打乱。
-    # 查看总体数据情况
-    data = pd.concat([A_data_train, B_data_train])
-    data = data.sample(frac=1.0, random_state=random_state)  # 全部打乱
-    print("一共有{}行特征数据".format(len(data)))
-    print("一共有{}列不同特征".format(data.shape[1]))
-    # 再把特征值数据和标签数据分开
-    x = data[data.columns[1:]]
-    y = data['label']
-    # 取X的5行看看数据
-    # print(x.head())
-    # 通过T检验从106个特征筛选
+def split_group_datasets(group_frames, test_ratio):
+    train_frames = {}
+    test_frames = {}
+    for group_name, df in group_frames.items():
+        train_frames[group_name], test_frames[group_name] = split_df(df, test_ratio)
+    return train_frames, test_frames
 
-    counts = 0
+
+def save_test_sets(test_frames):
+    for group_name, df in test_frames.items():
+        output_path = os.path.join(SCRIPT_DIR, f"{group_name}_test.csv")
+        df.to_csv(output_path, index=False)
+
+
+def combine_and_shuffle_frames(frames, random_state):
+    data = pd.concat(frames, axis=0)
+    return data.sample(frac=1.0, random_state=random_state)
+
+
+def run_ttest_feature_selection(a_train, b_train, use_ttest=True):
     columns_index = []
-    print("开始进行T检验")
-    use_tt = 1
-    if use_tt:
-        from scipy.stats import levene, ttest_ind
+    print("Start T-test feature selection")
+    if not use_ttest:
+        return list(a_train.columns[1:])
 
-        for column_name in A_data_train.columns[1:]:
-            if levene(A_data_train[column_name], B_data_train[column_name])[1] > 0.05:
-                if ttest_ind(A_data_train[column_name], B_data_train[column_name], equal_var=True)[1] < 0.05:
-                    columns_index.append(column_name)
-            else:
-                if ttest_ind(A_data_train[column_name], B_data_train[column_name], equal_var=False)[1] < 0.05:
-                    columns_index.append(column_name)
-    else:
+    from scipy.stats import levene, ttest_ind
 
-        for column_name in A_data_train.columns[1:]:
+    for column_name in a_train.columns[1:]:
+        a_values = a_train[column_name]
+        b_values = b_train[column_name]
+        same_variance = levene(a_values, b_values)[1] > 0.05
+        p_value = ttest_ind(a_values, b_values, equal_var=same_variance)[1]
+        if p_value < 0.05:
             columns_index.append(column_name)
-    print("columns_index: ", columns_index)
-    print("筛选后剩下的特征数：{}个".format(len(columns_index)))
+
+    print("columns_index:", columns_index)
+    print("Features left after T-test:", len(columns_index))
+    return columns_index
+
+
+def run_muse_selection(data, columns_index, max_columns_num, use_muse=False):
+    if not use_muse:
+        return columns_index
 
     from kydavra import MUSESelector
 
-    # 数据只保留从T检验筛选出的特征数据，重新组合成data
-    if not 'label' in columns_index:
-        columns_index = ['label'] + columns_index
-    A_train = A_data_train[columns_index]
-    B_train = B_data_train[columns_index]
-
-    data = pd.concat([A_train, B_train])
-    data = data.sample(frac=1.0, random_state=random_state)  # 全部打乱
-    # 缪斯选择器筛选特征
-    # 主要思想是在一个特征下，不同 类别的分布是有明显差异的，如果各个类别都是均匀分布，那这个特征就没有用。
-    print("开始进行MUSE选择器")
-    max_columns_num = 60  # 这个值是人工定义值
+    print("Start MUSE feature selection")
     selector = MUSESelector(num_features=max_columns_num)
-    # selector = LassoSelector()
-    # columns_index = selector.select(data, 'label')
+    selected_columns = selector.select(data, "label")
+    if "label" in selected_columns:
+        return selected_columns[1:]
+    return selected_columns
 
-    print("筛选后剩下的特征数：{}个".format(len(columns_index)))
-    # Lasso
-    # 数据只保留从T检验筛选出的特征数据，重新组合成data
-    if not 'label' in columns_index:
-        columns_index = ['label'] + columns_index
-    A_train = A_data_train[columns_index]
-    B_train = B_data_train[columns_index]
 
-    data = pd.concat([A_train, B_train])
-    data = data.sample(frac=1.0, random_state=random_state)  # 全部打乱
+def build_feature_subset(a_train, b_train, feature_columns, random_state):
+    selected_columns = list(feature_columns)
+    if "label" not in selected_columns:
+        selected_columns = ["label"] + selected_columns
 
-    # 再把特征值数据和标签数据分开
+    a_subset = a_train[selected_columns]
+    b_subset = b_train[selected_columns]
+    data = combine_and_shuffle_frames([a_subset, b_subset], random_state)
+    return data, selected_columns
+
+
+def run_lasso_feature_selection(data):
     x = data[data.columns[1:]]
-    y = data['label']
-    # 先保存X的列名
-    columnNames = x.columns
+    y = data["label"]
+    column_names = x.columns
 
-    lassoCV_x = x.astype(np.float32)  # 把x数据转换成np.float格式
-    lassoCV_y = y
+    lasso_x = x.astype(np.float32)
+    scaler = StandardScaler()
+    lasso_x = scaler.fit_transform(lasso_x)
+    lasso_x = pd.DataFrame(lasso_x, columns=column_names)
 
-    standardscaler = StandardScaler()
-    lassoCV_x = standardscaler.fit_transform(lassoCV_x)  # 对x进行均值-标准差归一化
-    lassoCV_x = pd.DataFrame(lassoCV_x, columns=columnNames)  # 转 DataFrame 格式
-
-    # 形成5为底的指数函数
-    # 5**（-3） ~  5**（-2）
-    # alpha_range = np.logspace(-3,-2,50,base=5)
     alpha_range = np.logspace(-3, 1, 50)
-    # alpha_range在这个参数范围里挑出aplpha进行训练，cv是把数据集分5分，进行交叉验证，max_iter是训练1000轮
-    lassoCV_model = LassoCV(alphas=alpha_range, cv=5, max_iter=100000)
-    # 进行训练
-    lassoCV_model.fit(lassoCV_x, lassoCV_y)
-    # 打印训练找出来的入值
-    print(lassoCV_model.alpha_)
-    # print("Coefficient of the model:{}".format(lassoCV_model.coef_) )
-    # print("intercept of the model:{}".format(lassoCV_model.intercept_))
+    model = LassoCV(alphas=alpha_range, cv=5, max_iter=100000)
+    model.fit(lasso_x, y)
 
-    coef = pd.Series(lassoCV_model.coef_, index=columnNames)
-    print("从原来{}个特征，筛选剩下{}个".format(len(columnNames), sum(coef != 0)))
-    print("分别是以下特征")
+    print(model.alpha_)
+    coef = pd.Series(model.coef_, index=column_names)
+    selected_features = list(coef[coef != 0].index)
+    print(
+        "Selected {} features from {}".format(
+            len(selected_features), len(column_names)
+        )
+    )
+    print("Selected features:")
     print(coef[coef != 0])
-    index = coef[coef != 0].index
-    lassoCV_x = lassoCV_x[index]
-    # lassoCV_x.head()
+    return {
+        "x": lasso_x,
+        "y": y,
+        "coef": coef,
+        "model": model,
+        "alpha_range": alpha_range,
+        "scaler": scaler,
+        "selected_features": selected_features,
+    }
 
-    # 绘制特征相关系数热力图
+
+def plot_lasso_diagnostics(lasso_result, data):
+    selected_features = lasso_result["selected_features"]
+    coef = lasso_result["coef"]
+    lasso_model = lasso_result["model"]
+    alpha_range = lasso_result["alpha_range"]
+    scaler = lasso_result["scaler"]
+
+    if not selected_features:
+        print("Skip plots because no features were selected by Lasso.")
+        return
+
+    selected_x = lasso_result["x"][selected_features]
+
     import seaborn as sns
 
-    f, ax = plt.subplots(figsize=(10, 10))
-    sns.heatmap(lassoCV_x.corr(), annot=True, cmap='coolwarm', annot_kws={'size': 10, 'weight': 'bold', },
-                ax=ax)  # 绘制混淆矩阵
+    _, ax = plt.subplots(figsize=(10, 10))
+    sns.heatmap(
+        selected_x.corr(),
+        annot=True,
+        cmap="coolwarm",
+        annot_kws={"size": 10, "weight": "bold"},
+        ax=ax,
+    )
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, va="top", ha="right")
     ax.set_yticklabels(ax.get_yticklabels(), rotation=45)
-    # plt.show()
-    # 画一个特征系数的柱状图
+
     weight = coef[coef != 0].to_dict()
-    # 根据值大小排列一下
-    weight = dict(sorted(weight.items(), key=lambda x: x[1], reverse=False))
-    plt.figure(figsize=(8, 6))  # 设置画布的尺寸
-    plt.title('characters classification weight', fontsize=15)  # 标题，并设定字号大小
-    plt.xlabel(u'weighted value', fontsize=14)  # 设置x轴，并设定字号大小
-    plt.ylabel(u'feature')
-    plt.barh(range(len(weight.values())), list(weight.values()), tick_label=list(weight.keys()), alpha=0.6,
-             facecolor='blue', edgecolor='black', label='feature weight')
-    plt.legend(loc=4)  # 图例展示位置，数字代表第几象限
-    # plt.show()
-    # 绘制误差棒图
-    MSEs = lassoCV_model.mse_path_
-    mse = list()
-    std = list()
-    for m in MSEs:
-        mse.append(np.mean(m))
-        std.append(np.std(m))
+    weight = dict(sorted(weight.items(), key=lambda item: item[1], reverse=False))
+    plt.figure(figsize=(8, 6))
+    plt.title("characters classification weight", fontsize=15)
+    plt.xlabel("weighted value", fontsize=14)
+    plt.ylabel("feature")
+    plt.barh(
+        range(len(weight.values())),
+        list(weight.values()),
+        tick_label=list(weight.keys()),
+        alpha=0.6,
+        facecolor="blue",
+        edgecolor="black",
+        label="feature weight",
+    )
+    plt.legend(loc=4)
+
+    mses = lasso_model.mse_path_
+    mse = [np.mean(m) for m in mses]
+    std = [np.std(m) for m in mses]
 
     plt.figure(figsize=(8, 6))
-    plt.errorbar(lassoCV_model.alphas_, mse, std, fmt='o:', ecolor='lightblue',
-                 elinewidth=3, ms=5, mfc='wheat', mec='salmon', capsize=3)
-    plt.axvline(lassoCV_model.alpha_, color='red', ls='--')
-    plt.title('Errorbar')
-    plt.xlabel('Lambda')
-    plt.ylabel('MSE')
-    # plt.show()
-    # 这个图显示随着lambda 的变化，系数的变化走势
-    x = data[data.columns[1:]]
-    y = data['label']
-    # 先保存X的列名
-    columnNames = x.columns
-    lassoCV_x = x.astype(np.float32)  # 把x数据转换成np.float格式
-    lassoCV_y = y
-    lassoCV_x = standardscaler.transform(lassoCV_x)  # 对x进行均值-标准差归一化
-    lassoCV_x = pd.DataFrame(lassoCV_x, columns=columnNames)  # 转 DataFrame 格式
-    coefs = lassoCV_model.path(lassoCV_x, lassoCV_y, alphas=alpha_range, max_iter=1000)[1].T
-    plt.figure(figsize=(8, 6))
-    plt.plot(lassoCV_model.alphas, coefs, '-')
-    plt.axvline(lassoCV_model.alpha_, color='red', ls='--')
-    plt.xlabel('Lambda')
-    plt.ylabel('coef')
-    # plt.show()
-    # 随机森林分类
-    model_name = 'svm'
-    print('Model:{}', model_name)
-    from sklearn.model_selection import train_test_split  # 分割训练集和验证集
-    from sklearn.ensemble import RandomForestClassifier  # 导入随机森林分类器
-    import joblib  # 用来保存 sklearn 训练好的模型
+    plt.errorbar(
+        lasso_model.alphas_,
+        mse,
+        std,
+        fmt="o:",
+        ecolor="lightblue",
+        elinewidth=3,
+        ms=5,
+        mfc="wheat",
+        mec="salmon",
+        capsize=3,
+    )
+    plt.axvline(lasso_model.alpha_, color="red", ls="--")
+    plt.title("Errorbar")
+    plt.xlabel("Lambda")
+    plt.ylabel("MSE")
 
-    # 把数据分成训练集和验证集，7：3比例
-    index_ = coef[coef != 0].index
-    rforest_x = x[index_]
-    rforest_y = y
-    standardscaler = StandardScaler()
-    rforest_x = standardscaler.fit_transform(rforest_x)  # 对x进行均值-标准差归一化
-    x_train, x_test, y_train, y_test = train_test_split(rforest_x, rforest_y, test_size=0.1)
-    if model_name == 'forest':
-        model = RandomForestClassifier(n_estimators=30, random_state=random_state).fit(x_train, y_train)
-    elif model_name == 'svm':
+    x = data[data.columns[1:]].astype(np.float32)
+    y = data["label"]
+    x = scaler.transform(x)
+    x = pd.DataFrame(x, columns=data.columns[1:])
+    coefs = lasso_model.path(x, y, alphas=alpha_range, max_iter=1000)[1].T
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(lasso_model.alphas_, coefs, "-")
+    plt.axvline(lasso_model.alpha_, color="red", ls="--")
+    plt.xlabel("Lambda")
+    plt.ylabel("coef")
+
+
+def build_classifier(model_name, random_state):
+    if model_name == "forest":
+        from sklearn.ensemble import RandomForestClassifier
+
+        return RandomForestClassifier(n_estimators=30, random_state=random_state)
+    if model_name == "svm":
         from sklearn import svm
 
-        model = svm.SVC(kernel='rbf', gamma='auto', probability=True).fit(x_train, y_train)
-    elif model_name == 'adaboost':
+        return svm.SVC(kernel="rbf", gamma="auto", probability=True)
+    if model_name == "adaboost":
         from sklearn.ensemble import AdaBoostClassifier
 
-        # n_estimators表示要组合的弱分类器个数；
-        # algorithm可选{‘SAMME’, ‘SAMME.R’}，默认为‘SAMME.R’，表示使用的是real boosting算法，‘SAMME’表示使用的是discrete boosting算法
-        model = AdaBoostClassifier(n_estimators=100, algorithm='SAMME.R')
-        model.fit(x_train, y_train)
-    elif model_name == 'decisiontree':
+        return AdaBoostClassifier(n_estimators=100, algorithm="SAMME.R")
+    if model_name == "decisiontree":
         from sklearn.tree import DecisionTreeClassifier
 
-        # criterion可选‘gini’, ‘entropy’，默认为gini(对应CART算法)，entropy为信息增益（对应ID3算法）
-        model = DecisionTreeClassifier(criterion='gini')
-        model.fit(x_train, y_train)
-    elif model_name == 'bayes':
+        return DecisionTreeClassifier(criterion="gini")
+    if model_name == "bayes":
         from sklearn.naive_bayes import GaussianNB
 
-        model = GaussianNB()
-        model.fit(x_train, y_train)
-    elif model_name == 'MLP':
+        return GaussianNB()
+    if model_name == "MLP":
         from sklearn.neural_network import MLPClassifier
 
-        model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(15, 2), random_state=1)
-        model.fit(x_train, y_train)
-    else:
-        print('No this method')
+        return MLPClassifier(
+            solver="lbfgs",
+            alpha=1e-5,
+            hidden_layer_sizes=(15, 2),
+            random_state=1,
+        )
+    raise ValueError(f"Unsupported model_name: {model_name}")
+
+
+def train_classifier(data, selected_features, model_name, random_state):
+    from sklearn.model_selection import train_test_split
+
+    x = data[selected_features]
+    y = data["label"]
+
+    scaler = StandardScaler()
+    x_scaled = scaler.fit_transform(x)
+    x_scaled = pd.DataFrame(x_scaled, columns=selected_features, index=x.index)
+    x_train, x_test, y_train, y_test = train_test_split(
+        x_scaled,
+        y,
+        test_size=0.1,
+        random_state=random_state,
+        stratify=y,
+    )
+
+    model = build_classifier(model_name, random_state)
+    model.fit(x_train, y_train)
+
     score = model.score(x_test, y_test)
-    print("在验证集上的准确率：{}".format(score))
-    # 模型保存
-    model_path = os.path.join(data_path, 'model_' + model_name + '.model')
-    joblib.dump(model, model_path)
-    # 在测试集验证
+    print("Model:", model_name)
+    print("Validation accuracy: {}".format(score))
+    return model, scaler, score
+
+
+def save_model(model, data_path, model_name):
     import joblib
 
-    A_test = pd.read_csv('./A_test.csv')
-    B_test = pd.read_csv('./B_test.csv')
-    # 再把特征值数据和标签数据分开
-    data_test = pd.concat([A_test, B_test], axis=0)
+    model_path = os.path.join(data_path, "model_" + model_name + ".model")
+    joblib.dump(model, model_path)
+    return model_path
 
-    x_test_data = data_test[data_test.columns[1:]]
-    # 只提取之前Lasso 筛选后的
-    index = coef[coef != 0].index
-    x_test_data = x_test_data[index]
 
-    columnNames = x_test_data.columns
-    x_test_data = x_test_data.astype(np.float32)
+def load_saved_test_data():
+    a_test = pd.read_csv(os.path.join(SCRIPT_DIR, "A_test.csv"))
+    b_test = pd.read_csv(os.path.join(SCRIPT_DIR, "B_test.csv"))
+    return pd.concat([a_test, b_test], axis=0)
 
-    x_test_data = standardscaler.transform(x_test_data)  # 均值-标准差归一化
-    x_test_data = pd.DataFrame(x_test_data, columns=columnNames)
-    y_test_data = data_test['label']
 
-    print("测试集一共有{}行特征数据，{}列不同特征,包含A:{}例，B:{}例".format(len(x_test_data), x_test_data.shape[1],
-                                                                           len(A_data_test),
-                                                                           len(B_data_test)))
-    # 加载保存后的模型，然后进行预测
-    model = joblib.load(model_path)  # 这是自己训练模型，记得替换自己的。
-    score = model.score(x_test_data, y_test_data)
-    print("在测试集上的准确率：{}".format(score))
-
-    # 绘制混淆矩阵
-    from sklearn.metrics import confusion_matrix
-    from sklearn.metrics import classification_report
-
-    # 绘制混淆矩阵图方法1
+def evaluate_model(model_path, selected_features, scaler, a_data_test, b_data_test):
+    import joblib
+    from sklearn.metrics import classification_report, confusion_matrix
     import seaborn as sns
 
-    predict_label = model.predict(x_test_data)  # 预测的标签
-    label = y_test_data.to_list()  # 真实标签
-    confusion = confusion_matrix(label, predict_label)  # 计算混淆矩阵
+    data_test = load_saved_test_data()
+    x_test_data = data_test[selected_features].astype(np.float32)
+    x_test_data = scaler.transform(x_test_data)
+    x_test_data = pd.DataFrame(x_test_data, columns=selected_features)
+    y_test_data = data_test["label"]
+
+    print(
+        "Test samples: {}, features: {}, A: {}, B: {}".format(
+            len(x_test_data),
+            x_test_data.shape[1],
+            len(a_data_test),
+            len(b_data_test),
+        )
+    )
+
+    model = joblib.load(model_path)
+    score = model.score(x_test_data, y_test_data)
+    print("Test accuracy: {}".format(score))
+
+    predict_label = model.predict(x_test_data)
+    label = y_test_data.to_list()
+    confusion = confusion_matrix(label, predict_label)
 
     plt.figure(figsize=(6, 5))
-    sns.heatmap(confusion, cmap='Blues_r', annot=True, annot_kws={'size': 20, 'weight': 'bold', })  # 绘制混淆矩阵
-    plt.xlabel('Predict')
-    plt.ylabel('True')
-    # plt.show()
+    sns.heatmap(
+        confusion,
+        cmap="Blues_r",
+        annot=True,
+        annot_kws={"size": 20, "weight": "bold"},
+    )
+    plt.xlabel("Predict")
+    plt.ylabel("True")
 
-    # 绘制混淆图方法2,一行代码
-    # plot_confusion_matrix(model_forest, x_test_data, y_test_data,values_format='d',cmap='GnBu_r')
-
-    print("混淆矩阵为：\n{}".format(confusion))
-    print("\n计算各项指标：")
+    print("Confusion matrix:\n{}".format(confusion))
+    print("\nClassification metrics:")
     print(classification_report(label, predict_label))
+    return {
+        "score": score,
+        "confusion": confusion,
+        "labels": label,
+        "predictions": predict_label,
+    }
 
-    # # 绘制ROC曲线,方法1
-    # from sklearn.metrics import roc_curve, auc
-    # 
-    # kind = {'A': 1, "B": 0}
-    # # model = joblib.load(model_path)  # 这是自己训练模型，记得替换自己的
-    # label = y_test_data.to_list()  # 真实标签
-    # y_predict = model.predict_proba(x_test_data)  # 得到标签0和1对应的概率
-    # fpr, tpr, threshold = roc_curve(label, y_predict[:, kind['B']], pos_label=kind['B'])
-    # roc_auc = auc(fpr, tpr)  # 计算auc的
-    # fpr1, tpr1, threshold = roc_curve(label, y_predict[:, kind['A']], pos_label=kind['A'])
-    # roc_auc1 = auc(fpr1, tpr1)  # 计算auc的
-    # plt.figure(figsize=(6, 5))
-    # plt.plot(fpr, tpr, marker='o', markersize=5, label='B')
-    # plt.plot(fpr1, tpr1, marker='*', markersize=5, label='A')
-    # plt.title("B AUC:{:.2f}, A AUC:{:.2f}".format(roc_auc, roc_auc1))
-    # plt.xlabel('FPR')
-    # plt.ylabel('TPR')
-    # plt.legend(loc=4)
-    # # plt.show()
-    # # 绘制ROC方法2,两行代码
-    # from sklearn.metrics import RocCurveDisplay
-    # 
-    # ax1 = RocCurveDisplay.from_estimator(model, x_test_data, y_test_data, name='B', pos_label=0)
-    # RocCurveDisplay.from_estimator(model, x_test_data, y_test_data, ax=ax1.ax_, name='ACC', pos_label=1)
-    # 
-    # # 绘制PR曲线，一行代码
-    # from sklearn.metrics import PrecisionRecallDisplay
-    # 
-    # PrecisionRecallDisplay.from_estimator(model, x_test_data, y_test_data, name='PR', pos_label=0)
-    # plt.show()
+
+def main():
+    group_frames = prepare_group_datasets(DATA_PATH, CLASS_CONFIG, RANDOM_STATE)
+    train_frames, test_frames = split_group_datasets(group_frames, TEST_RATIO)
+    save_test_sets(test_frames)
+
+    train_data = combine_and_shuffle_frames(
+        [train_frames["A"], train_frames["B"]],
+        RANDOM_STATE,
+    )
+    print("Training rows: {}".format(len(train_data)))
+    print("Training columns: {}".format(train_data.shape[1]))
+
+    feature_columns = run_ttest_feature_selection(
+        train_frames["A"],
+        train_frames["B"],
+        use_ttest=USE_TTEST,
+    )
+    if not feature_columns:
+        raise ValueError("No features were selected after T-test filtering.")
+    subset_data, _ = build_feature_subset(
+        train_frames["A"],
+        train_frames["B"],
+        feature_columns,
+        RANDOM_STATE,
+    )
+
+    feature_columns = run_muse_selection(
+        subset_data,
+        feature_columns,
+        MAX_MUSE_FEATURES,
+        use_muse=USE_MUSE,
+    )
+    print("Features left after MUSE:", len(feature_columns))
+    if not feature_columns:
+        raise ValueError("No features were selected after MUSE filtering.")
+
+    subset_data, _ = build_feature_subset(
+        train_frames["A"],
+        train_frames["B"],
+        feature_columns,
+        RANDOM_STATE,
+    )
+    lasso_result = run_lasso_feature_selection(subset_data)
+    plot_lasso_diagnostics(lasso_result, subset_data)
+
+    selected_features = lasso_result["selected_features"]
+    if not selected_features:
+        raise ValueError("No features were selected by Lasso.")
+
+    model, scaler, _ = train_classifier(
+        subset_data,
+        selected_features,
+        MODEL_NAME,
+        RANDOM_STATE,
+    )
+    model_path = save_model(model, DATA_PATH, MODEL_NAME)
+    evaluate_model(
+        model_path,
+        selected_features,
+        scaler,
+        test_frames["A"],
+        test_frames["B"],
+    )
+
+
+if __name__ == "__main__":
+    main()
