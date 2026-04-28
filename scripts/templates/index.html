@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PySERA Pipeline Console</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">PySERA Workflow</p>
+        <h1>Radiomics Pipeline Console</h1>
+        <p class="lead">Run extraction, feature selection, and model training from one place, with live logs and visual outputs.</p>
+      </div>
+      <div class="hero-meta">
+        <div class="meta-chip">FastAPI</div>
+        <div class="meta-chip">HTML</div>
+        <div class="meta-chip">Config Driven</div>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <section class="pipeline-panel">
+        <div class="section-head">
+          <h2>Pipeline Steps</h2>
+          <p>Run the pipeline in order for the cleanest workflow. Buttons lock while a job is active.</p>
+        </div>
+        <div class="step-grid">
+          {% for step in steps %}
+          <article class="step-card" data-step-card="{{ step }}">
+            <div class="step-topline">
+              <span class="step-name">{{ step|upper }}</span>
+              <span class="step-badge idle" data-step-status="{{ step }}">Idle</span>
+            </div>
+            <p class="step-desc">
+              {% if step == "step1" %}
+              Extract raw radiomics features and generate the per-class feature spreadsheets.
+              {% elif step == "step2" %}
+              Clean data, apply feature-selection rules, and export train/test feature sets.
+              {% else %}
+              Train the selected classifier and render the ROC curve and confusion matrix.
+              {% endif %}
+            </p>
+            <button class="step-button" data-run-step="{{ step }}">
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M8 5v14l11-7z" fill="currentColor"></path>
+                </svg>
+              </span>
+              <span>Run {{ step|title }}</span>
+            </button>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <section class="config-card">
+          <div class="section-head compact">
+            <h2>Runtime Config</h2>
+            <p>Selections here are saved and used by the next pipeline run.</p>
+          </div>
+          <form id="config-form" class="config-form">
+            <label class="field field-span-2">
+              <span class="field-label">Data Path</span>
+              <input type="text" name="data_path" id="data-path" value="{{ config_summary.data_path }}">
+            </label>
+
+            <label class="field">
+              <span class="field-label">Test Ratio</span>
+              <input type="number" step="0.01" min="0.01" max="0.99" name="test_ratio" id="test-ratio" value="{{ config_summary.test_ratio }}">
+            </label>
+
+            <label class="field">
+              <span class="field-label">Random State</span>
+              <input type="number" step="1" name="random_state" id="random-state" value="{{ config_summary.random_state }}">
+            </label>
+
+            <label class="field">
+              <span class="field-label">Model</span>
+              <select name="model_name" id="model-name">
+                {% for model_name in model_options %}
+                <option value="{{ model_name }}" {% if model_name == config_summary.model_name %}selected{% endif %}>{{ model_name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label class="field">
+              <span class="field-label">Max MUSE Features</span>
+              <input type="number" step="1" min="1" name="max_muse_features" id="max-muse-features" value="{{ config_summary.max_muse_features }}">
+            </label>
+
+            <label class="toggle-field">
+              <input type="checkbox" name="use_ttest" id="use-ttest" {% if config_summary.use_ttest %}checked{% endif %}>
+              <span class="toggle-copy">
+                <strong>Use T-test filtering</strong>
+                <small>Enable statistical pre-filtering before downstream selection.</small>
+              </span>
+            </label>
+
+            <label class="toggle-field">
+              <input type="checkbox" name="use_muse" id="use-muse" {% if config_summary.use_muse %}checked{% endif %}>
+              <span class="toggle-copy">
+                <strong>Use MUSE selection</strong>
+                <small>Apply MUSE when the dependency is available in the environment.</small>
+              </span>
+            </label>
+
+            <div class="form-actions">
+              <button type="submit" class="secondary-button">Save Config</button>
+              <p id="config-feedback" class="form-feedback">Current values are loaded from <code>runtime_config.json</code> when present.</p>
+            </div>
+          </form>
+        </section>
+
+        <section class="artifact-card">
+          <div class="section-head compact">
+            <h2>Artifacts</h2>
+            <p>Summary of the latest generated outputs</p>
+          </div>
+          <div class="artifact-stats">
+            <div class="artifact-stat">
+              <span class="artifact-label">Selected Features</span>
+              <strong id="selected-features-count">{{ artifact_summary.selected_features_count }}</strong>
+            </div>
+            <div class="artifact-stat">
+              <span class="artifact-label">Model Step Ready</span>
+              <strong id="step3-ready">{% if artifact_summary.selected_features_path %}Yes{% else %}No{% endif %}</strong>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="log-panel">
+        <div class="section-head">
+          <h2>Live Logs</h2>
+          <p id="job-meta">Waiting for a pipeline run.</p>
+        </div>
+        <pre id="log-output" class="log-output">Click any step to stream logs here.</pre>
+      </section>
+
+      <section class="visual-panel">
+        <div class="section-head">
+          <h2>Model Visuals</h2>
+          <p>Step 3 refreshes these panels after training finishes.</p>
+        </div>
+        <div class="visual-grid">
+          <figure class="visual-card">
+            <figcaption>ROC Curve</figcaption>
+            <div class="visual-frame">
+              <img id="roc-image" src="{{ artifact_summary.roc_plot_url or '' }}" alt="ROC curve" {% if not artifact_summary.roc_plot_url %}hidden{% endif %}>
+              <div class="visual-empty" id="roc-empty" {% if artifact_summary.roc_plot_url %}hidden{% endif %}>No ROC curve yet.</div>
+            </div>
+          </figure>
+          <figure class="visual-card">
+            <figcaption>Confusion Matrix</figcaption>
+            <div class="visual-frame">
+              <img id="confusion-image" src="{{ artifact_summary.confusion_matrix_plot_url or '' }}" alt="Confusion matrix" {% if not artifact_summary.confusion_matrix_plot_url %}hidden{% endif %}>
+              <div class="visual-empty" id="confusion-empty" {% if artifact_summary.confusion_matrix_plot_url %}hidden{% endif %}>No confusion matrix yet.</div>
+            </div>
+          </figure>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const state = {
+      pollingTimer: null,
+      activeJobId: null,
+    };
+
+    const statusLabelMap = {
+      queued: "Queued",
+      running: "Running",
+      completed: "Completed",
+      failed: "Failed",
+      idle: "Idle",
+    };
+
+    function setButtonLock(locked) {
+      document.querySelectorAll("[data-run-step]").forEach((button) => {
+        button.disabled = locked;
+      });
+    }
+
+    function updateStatusBadges(activeStep, status) {
+      document.querySelectorAll("[data-step-status]").forEach((badge) => {
+        const step = badge.getAttribute("data-step-status");
+        const nextStatus = step === activeStep ? status : "idle";
+        badge.textContent = statusLabelMap[nextStatus] || nextStatus;
+        badge.className = `step-badge ${nextStatus}`;
+      });
+    }
+
+    function updateArtifacts(artifacts) {
+      document.getElementById("selected-features-count").textContent = artifacts.selected_features_count || 0;
+      document.getElementById("step3-ready").textContent = artifacts.selected_features_path ? "Yes" : "No";
+
+      const rocImage = document.getElementById("roc-image");
+      const rocEmpty = document.getElementById("roc-empty");
+      if (artifacts.roc_plot_url) {
+        rocImage.src = artifacts.roc_plot_url;
+        rocImage.hidden = false;
+        rocEmpty.hidden = true;
+      } else {
+        rocImage.hidden = true;
+        rocEmpty.hidden = false;
+      }
+
+      const confusionImage = document.getElementById("confusion-image");
+      const confusionEmpty = document.getElementById("confusion-empty");
+      if (artifacts.confusion_matrix_plot_url) {
+        confusionImage.src = artifacts.confusion_matrix_plot_url;
+        confusionImage.hidden = false;
+        confusionEmpty.hidden = true;
+      } else {
+        confusionImage.hidden = true;
+        confusionEmpty.hidden = false;
+      }
+    }
+
+    function updateConfigForm(config) {
+      document.getElementById("data-path").value = config.data_path || "";
+      document.getElementById("test-ratio").value = config.test_ratio ?? 0.15;
+      document.getElementById("random-state").value = config.random_state ?? 114;
+      document.getElementById("model-name").value = config.model_name || "bayes";
+      document.getElementById("max-muse-features").value = config.max_muse_features ?? 60;
+      document.getElementById("use-ttest").checked = Boolean(config.use_ttest);
+      document.getElementById("use-muse").checked = Boolean(config.use_muse);
+    }
+
+    function renderJob(job) {
+      if (!job) {
+        return;
+      }
+      state.activeJobId = job.id;
+      updateStatusBadges(job.step, job.status);
+      setButtonLock(job.status === "queued" || job.status === "running");
+      document.getElementById("job-meta").textContent =
+        `${job.step.toUpperCase()} · ${statusLabelMap[job.status] || job.status} · started ${job.started_at}`;
+      document.getElementById("log-output").textContent = job.logs || "";
+      updateArtifacts(job.artifacts || {});
+
+      if (job.status === "completed" || job.status === "failed") {
+        setButtonLock(false);
+        if (state.pollingTimer) {
+          window.clearInterval(state.pollingTimer);
+          state.pollingTimer = null;
+        }
+      }
+    }
+
+    async function fetchConfig() {
+      const response = await fetch("/api/config");
+      const payload = await response.json();
+      updateConfigForm(payload);
+    }
+
+    async function fetchLatestJob() {
+      const response = await fetch("/api/jobs/latest");
+      const payload = await response.json();
+      if (payload.job) {
+        renderJob(payload.job);
+      }
+    }
+
+    async function pollJob(jobId) {
+      const response = await fetch(`/api/jobs/${jobId}`);
+      const job = await response.json();
+      renderJob(job);
+    }
+
+    async function startStep(step) {
+      try {
+        const response = await fetch(`/api/run/${step}`, { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || "Failed to start job.");
+        }
+        renderJob(payload);
+        if (state.pollingTimer) {
+          window.clearInterval(state.pollingTimer);
+        }
+        state.pollingTimer = window.setInterval(() => pollJob(payload.id), 1200);
+      } catch (error) {
+        document.getElementById("job-meta").textContent = error.message;
+      }
+    }
+
+    async function saveConfig(event) {
+      event.preventDefault();
+      const feedback = document.getElementById("config-feedback");
+      feedback.textContent = "Saving configuration...";
+      const payload = {
+        data_path: document.getElementById("data-path").value,
+        test_ratio: Number(document.getElementById("test-ratio").value),
+        random_state: Number(document.getElementById("random-state").value),
+        model_name: document.getElementById("model-name").value,
+        max_muse_features: Number(document.getElementById("max-muse-features").value),
+        use_ttest: document.getElementById("use-ttest").checked,
+        use_muse: document.getElementById("use-muse").checked,
+      };
+
+      try {
+        const response = await fetch("/api/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.detail || "Failed to save config.");
+        }
+        updateConfigForm(result);
+        feedback.textContent = "Configuration saved. New runs will use these values.";
+      } catch (error) {
+        feedback.textContent = error.message;
+      }
+    }
+
+    document.querySelectorAll("[data-run-step]").forEach((button) => {
+      button.addEventListener("click", () => startStep(button.getAttribute("data-run-step")));
+    });
+    document.getElementById("config-form").addEventListener("submit", saveConfig);
+
+    fetchConfig();
+    fetchLatestJob();
+  </script>
+</body>
+</html>

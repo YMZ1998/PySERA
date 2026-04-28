@@ -10,6 +10,7 @@ requirements - pervious.txt
 *.csv
 *.json
 *.png
+.playwright-mcp
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
