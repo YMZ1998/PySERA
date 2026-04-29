@@ -11,14 +11,18 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import uvicorn
 
 from config import (
     CONFUSION_MATRIX_PLOT_PATH,
     FEATURE_METADATA_PATH,
+    LOG_DIR,
     MODEL_OPTIONS,
     PLOT_OUTPUT_DIR,
     ROC_PLOT_PATH,
     SCRIPT_DIR,
+    WEBAPP_STDERR_LOG_PATH,
+    WEBAPP_STDOUT_LOG_PATH,
     get_runtime_config,
     update_runtime_config,
 )
@@ -46,6 +50,11 @@ active_job_id = None
 
 def iso_now():
     return datetime.now().isoformat(timespec="seconds")
+
+
+def ensure_runtime_dirs():
+    os.makedirs(PLOT_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(LOG_DIR, exist_ok=True)
 
 
 def get_relative_artifact_url(path_value):
@@ -104,6 +113,7 @@ def snapshot_job(job_id):
             "finished_at": job.get("finished_at"),
             "return_code": job.get("return_code"),
             "logs": "".join(job["logs"]),
+            "log_path": job.get("log_path"),
             "artifacts": build_artifact_summary(),
         }
 
@@ -112,6 +122,10 @@ def append_job_log(job_id, line):
     with jobs_lock:
         if job_id in jobs:
             jobs[job_id]["logs"].append(line)
+            log_path = jobs[job_id].get("log_path")
+            if log_path:
+                with open(log_path, "a", encoding="utf-8") as file:
+                    file.write(line)
 
 
 def mark_job_state(job_id, **updates):
@@ -262,7 +276,9 @@ def api_run_step(step_name: str):
         raise HTTPException(status_code=404, detail="Unknown step.")
 
     ensure_no_active_job()
+    ensure_runtime_dirs()
     job_id = uuid.uuid4().hex
+    log_path = os.path.join(LOG_DIR, f"{iso_now().replace(':', '-')}_{step_name}_{job_id[:8]}.log")
     with jobs_lock:
         created_order = len(jobs) + 1
         jobs[job_id] = {
@@ -273,10 +289,28 @@ def api_run_step(step_name: str):
             "finished_at": None,
             "return_code": None,
             "logs": [f"[runner] Starting {step_name}...\n"],
+            "log_path": log_path,
             "created_order": created_order,
         }
         active_job_id = job_id
+    with open(log_path, "w", encoding="utf-8") as file:
+        file.write(f"[runner] Starting {step_name}...\n")
 
     thread = threading.Thread(target=run_step_job, args=(job_id, step_name), daemon=True)
     thread.start()
     return JSONResponse(snapshot_job(job_id))
+
+
+def run():
+    ensure_runtime_dirs()
+    uvicorn.run(
+        "webapp:app",
+        app_dir=str(APP_DIR),
+        host="127.0.0.1",
+        port=8050,
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    run()
