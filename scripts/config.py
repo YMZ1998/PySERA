@@ -2,20 +2,20 @@ import copy
 import json
 import os
 
-
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 RUNTIME_CONFIG_PATH = os.path.join(SCRIPT_DIR, "runtime_config.json")
 MODEL_OPTIONS = ["bayes", "svm", "forest", "adaboost", "decisiontree", "MLP"]
 
 DEFAULT_CONFIG = {
-    "data_path": r"E:\AI-data2\nnUNet_raw\Dataset0978_test",
+    "root_dir": r"E:\AI-data2\Radiomics",
+    "dataset_name": r"Dataset0978_test",
     "class_config": {"A": 1, "B": 0},
     "test_ratio": 0.15,
     "random_state": 114,
     "use_ttest": True,
     "use_muse": True,
     "max_muse_features": 60,
-    "model_name": "bayes",
+    "model_name": "MLP",
     "pysera_process_kwargs": {
         "num_workers": "8",
         "enable_parallelism": True,
@@ -75,7 +75,8 @@ def update_runtime_config(updates):
 
 _CONFIG = get_runtime_config()
 
-DATA_PATH = _CONFIG["data_path"]
+ROOT_DIR = _CONFIG["root_dir"]
+DATA_PATH = os.path.join(ROOT_DIR, _CONFIG["dataset_name"])
 CLASS_CONFIG = _CONFIG["class_config"]
 TEST_RATIO = _CONFIG["test_ratio"]
 RANDOM_STATE = _CONFIG["random_state"]
@@ -85,12 +86,16 @@ MAX_MUSE_FEATURES = _CONFIG["max_muse_features"]
 MODEL_NAME = _CONFIG["model_name"]
 PYSERA_PROCESS_KWARGS = _CONFIG["pysera_process_kwargs"]
 
-TRAIN_SELECTED_PATH = os.path.join(SCRIPT_DIR, "train_selected.csv")
-TEST_SELECTED_PATH = os.path.join(SCRIPT_DIR, "test_selected.csv")
-FEATURE_METADATA_PATH = os.path.join(SCRIPT_DIR, "selected_features.json")
-PLOT_OUTPUT_DIR = os.path.join(SCRIPT_DIR, "plots")
-LOG_DIR = os.path.join(SCRIPT_DIR, "logs")
+TRAIN_SELECTED_PATH = os.path.join(DATA_PATH, "train_selected.csv")
+TEST_SELECTED_PATH = os.path.join(DATA_PATH, "test_selected.csv")
+FEATURE_METADATA_PATH = os.path.join(DATA_PATH, "selected_features.json")
+PLOT_OUTPUT_DIR = os.path.join(DATA_PATH, "plots")
+LOG_DIR = os.path.join(DATA_PATH, "logs")
 WEBAPP_STDOUT_LOG_PATH = os.path.join(LOG_DIR, "webapp.out.log")
 WEBAPP_STDERR_LOG_PATH = os.path.join(LOG_DIR, "webapp.err.log")
 ROC_PLOT_PATH = os.path.join(PLOT_OUTPUT_DIR, "step3_roc_curve.png")
 CONFUSION_MATRIX_PLOT_PATH = os.path.join(PLOT_OUTPUT_DIR, "step3_confusion_matrix.png")
+
+if __name__ == "__main__":
+    print(_CONFIG)
+    print(DATA_PATH)

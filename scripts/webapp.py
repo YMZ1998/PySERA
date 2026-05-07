@@ -7,11 +7,11 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import uvicorn
 
 from config import (
     CONFUSION_MATRIX_PLOT_PATH,
@@ -21,12 +21,9 @@ from config import (
     PLOT_OUTPUT_DIR,
     ROC_PLOT_PATH,
     SCRIPT_DIR,
-    WEBAPP_STDERR_LOG_PATH,
-    WEBAPP_STDOUT_LOG_PATH,
     get_runtime_config,
-    update_runtime_config,
+    update_runtime_config, DATA_PATH,
 )
-
 
 APP_DIR = Path(SCRIPT_DIR)
 TEMPLATES_DIR = APP_DIR / "templates"
@@ -61,7 +58,7 @@ def get_relative_artifact_url(path_value):
     path = Path(path_value)
     if not path.exists():
         return None
-    relative_path = path.relative_to(ARTIFACT_ROOT).as_posix()
+    relative_path = path.relative_to(DATA_PATH).as_posix()
     return f"/artifacts/{relative_path}?ts={int(path.stat().st_mtime)}"
 
 
@@ -75,7 +72,7 @@ def load_feature_metadata():
 def build_config_summary():
     runtime_config = get_runtime_config()
     return {
-        "data_path": runtime_config["data_path"],
+        "root_dir": runtime_config["root_dir"],
         "class_config": runtime_config["class_config"],
         "test_ratio": runtime_config["test_ratio"],
         "random_state": runtime_config["random_state"],
@@ -230,9 +227,6 @@ async def api_update_config(request: Request):
             raise HTTPException(status_code=400, detail="Unsupported model_name.")
         updates["model_name"] = model_name
 
-    if "data_path" in payload:
-        updates["data_path"] = str(payload["data_path"])
-
     if not updates:
         raise HTTPException(status_code=400, detail="No valid config fields were provided.")
 
@@ -303,6 +297,9 @@ def api_run_step(step_name: str):
 
 def run():
     ensure_runtime_dirs()
+    print("Starting webapp...")
+    print("Server: http://127.0.0.1:8050")
+    print("Docs:   http://127.0.0.1:8050/docs")
     uvicorn.run(
         "webapp:app",
         app_dir=str(APP_DIR),
