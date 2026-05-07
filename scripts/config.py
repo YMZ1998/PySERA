@@ -93,8 +93,8 @@ PLOT_OUTPUT_DIR = os.path.join(DATA_PATH, "plots")
 LOG_DIR = os.path.join(DATA_PATH, "logs")
 WEBAPP_STDOUT_LOG_PATH = os.path.join(LOG_DIR, "webapp.out.log")
 WEBAPP_STDERR_LOG_PATH = os.path.join(LOG_DIR, "webapp.err.log")
-ROC_PLOT_PATH = os.path.join(PLOT_OUTPUT_DIR, "step3_roc_curve.png")
-CONFUSION_MATRIX_PLOT_PATH = os.path.join(PLOT_OUTPUT_DIR, "step3_confusion_matrix.png")
+ROC_PLOT_PATH = os.path.join(PLOT_OUTPUT_DIR, "roc_curve.png")
+CONFUSION_MATRIX_PLOT_PATH = os.path.join(PLOT_OUTPUT_DIR, "confusion_matrix.png")
 
 if __name__ == "__main__":
     print(_CONFIG)

@@ -37,7 +37,7 @@ STEP_FILES = {
 
 app = FastAPI(title="PySERA Pipeline Console")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-app.mount("/artifacts", StaticFiles(directory=ARTIFACT_ROOT), name="artifacts")
+app.mount("/artifacts", StaticFiles(directory=DATA_PATH), name="artifacts")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 jobs = {}
@@ -56,10 +56,17 @@ def ensure_runtime_dirs():
 
 def get_relative_artifact_url(path_value):
     path = Path(path_value)
+
     if not path.exists():
         return None
-    relative_path = path.relative_to(DATA_PATH).as_posix()
-    return f"/artifacts/{relative_path}?ts={int(path.stat().st_mtime)}"
+
+    try:
+        relative_path = path.relative_to(DATA_PATH).as_posix()
+    except ValueError:
+        return None
+
+    ts = int(path.stat().st_mtime)
+    return f"/artifacts/{relative_path}?ts={ts}"
 
 
 def load_feature_metadata():
